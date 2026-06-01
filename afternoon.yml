@@ -1,0 +1,23 @@
+# Claude Code Routines - 午後スクリーニングメール
+# 毎営業日 12:30 JST に実行
+
+name: afternoon-stock-screening
+schedule: daily 12:30 JST
+
+prompt: |
+  以下のコマンドを実行してください。
+  
+  ```
+  cd stock-screening && python scripts/afternoon_mail.py
+  ```
+  
+  エラーが出た場合はエラー内容を確認し、依存パッケージが不足していれば
+  `pip install yfinance anthropic` を実行してから再試行してください。
+  
+  実行完了後、送信した銘柄数とエラーの有無を報告してください。
+
+env:
+  ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
+  GMAIL_USER: $GMAIL_USER
+  GMAIL_APP_PASSWORD: $GMAIL_APP_PASSWORD
+  TO_EMAIL: $TO_EMAIL
