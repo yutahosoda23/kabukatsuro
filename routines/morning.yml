@@ -1,0 +1,33 @@
+# Claude Code Routine - 朝のスクリーニングメール
+# 毎営業日 8:00 JST に実行（土日・祝日はスクリプトが自動スキップ）
+
+name: morning-stock-screening
+schedule: daily 08:00 JST
+
+prompt: |
+  日本株のデイトレ向け朝メールを送信します。以下を順に実行してください。
+
+  1. 依存パッケージを用意:
+     pip install -q yfinance pandas xlrd jpholiday requests
+
+  2. テクニカルスクリーニングを実行:
+     python scripts/screener.py --out /tmp/screen.json
+     ※ 出力に "SKIP"（終了コード10）が出たら本日は休場日です。
+        以降の処理を中止し、メールは送らず「休場日のためスキップ」と報告して終了してください。
+
+  3. 本日の好材料銘柄を Web 検索で10個選定してください。観点:
+       - 決算（上方修正・増配・好決算）
+       - 証券会社の目標株価引き上げ・買い推奨
+       - 自社株買い発表 / M&A・提携・新製品 / 出来高急増・話題銘柄
+     結果を次のJSON形式で /tmp/hot.json に保存してください（説明文やコードフェンス不要、配列のみ）:
+       [{"code":"7272","name":"ヤマハ発動機","price":1279,"reason":"Q1決算で営業利益+43.8%、通期増益予想"}, ...]
+
+  4. メールを組み立てて送信:
+     python scripts/mailer.py morning --screen /tmp/screen.json --hot /tmp/hot.json
+
+  5. 完了後、各セクションの銘柄数とエラーの有無を報告してください。
+
+env:
+  GMAIL_USER: $GMAIL_USER
+  GMAIL_APP_PASSWORD: $GMAIL_APP_PASSWORD
+  TO_EMAIL: $TO_EMAIL

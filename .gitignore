@@ -1,0 +1,11 @@
+# 認証情報（絶対にコミットしない）
+.env.local
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 一時ファイル
+/tmp/*.json
