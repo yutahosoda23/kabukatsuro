@@ -1,0 +1,32 @@
+#!/bin/bash
+# 朝8:00 ローカル実行スクリプト（launchdから呼ばれる）
+# Section1(好材料/API) + Section2/3(テクニカル/yfinance) を生成しメール送信
+set -uo pipefail
+
+REPO="/Users/yuthsd/Desktop/kabukatsuro"
+PY="$REPO/.venv/bin/python"
+cd "$REPO" || exit 1
+
+# 認証情報を読み込み
+set -a; . "$REPO/.env.local"; set +a
+
+echo "===== $(date '+%Y-%m-%d %H:%M:%S') 朝の実行開始 ====="
+
+# 1) テクニカルスクリーニング（休場日なら終了コード10でSKIP）
+"$PY" scripts/screener.py --out /tmp/kabu_screen.json
+rc=$?
+if [ $rc -eq 10 ]; then
+  echo "休場日のためスキップしました。"
+  exit 0
+elif [ $rc -ne 0 ]; then
+  echo "screener.py が異常終了 (rc=$rc)。処理を中止します。"
+  exit $rc
+fi
+
+# 2) 好材料銘柄（Anthropic API + web_search）
+"$PY" scripts/catalysts.py morning --out /tmp/kabu_hot.json || echo "好材料取得に失敗（Section1は空で続行）"
+
+# 3) メール送信
+"$PY" scripts/mailer.py morning --screen /tmp/kabu_screen.json --hot /tmp/kabu_hot.json
+
+echo "===== 朝の実行完了 ====="
