@@ -28,6 +28,34 @@ set -a; . ./.env.local; set +a          # GMAIL_USER / GMAIL_APP_PASSWORD / TO_E
   || .venv/bin/pip install -q yfinance pandas xlrd jpholiday requests
 ```
 
+### 0.5 ★本日の朝メール（launchd自動送信）が送信済みか確認して分岐する
+```bash
+.venv/bin/python scripts/mailer.py --check-sent
+```
+- **`SENT`（終了コード0）= 送信済み** → 【A. 返信モード】へ。
+  自動メールは既に届いているので **重複した朝メールは送らない**。
+  WebSearchで市場まとめだけ作り、その朝メールに**返信する形で**送る。
+- **`NOT_SENT`（終了コード20）= 未送信**（Macがスリープ等で8:00に動かなかった）
+  → 【B. フル送信モード】へ。市場まとめ付きの朝メールを新規に送る。
+
+---
+
+## 【A. 返信モード】（朝メールが送信済みのとき）
+
+重いスクリーニングは不要。市場まとめだけ作って既存の朝メールへ返信する。
+
+1. 下記「### 今朝の市場のまとめを作る」に従って `/tmp/kabu_market.json` を作成。
+2. 既送信の朝メールへ**返信**として送る:
+   ```bash
+   .venv/bin/python scripts/mailer.py reply-market --market /tmp/kabu_market.json
+   ```
+   （その日の朝メールと同一スレッドにぶら下がる。件名は `Re: 【株スクリーニング】… 朝の市場まとめ＆候補銘柄`）
+3. 市場まとめの要点と「既送信メールへ返信した」旨を報告して終了。
+
+---
+
+## 【B. フル送信モード】（朝メールが未送信のとき）
+
 ### 1. テクニカルスクリーニング（全銘柄。1〜3分かかる）
 ```bash
 .venv/bin/python scripts/screener.py --out /tmp/kabu_screen.json
@@ -42,7 +70,7 @@ set -a; . ./.env.local; set +a          # GMAIL_USER / GMAIL_APP_PASSWORD / TO_E
 Yahoo値上がり率・出来高ランキングのスクレイピング＋日足テクニカル＋履歴分析で
 「お祭り銘柄 TOP10」と「急落リバウンド候補」を自動生成する（失敗しても空で続行）。
 
-### 3. 今朝の市場のまとめを作る → /tmp/kabu_market.json ★このスキルの肝
+### 3. 今朝の市場のまとめを作る → /tmp/kabu_market.json ★このスキルの肝（A・B共通）
 WebSearch で**当日朝の地合い**を調べ、デイトレーダーが寄り前に手早く要点をつかめるJSONを作る。
 ポイントは「有益な情報を手早くキャッチできること」。盛り込みすぎず要点に絞る。
 

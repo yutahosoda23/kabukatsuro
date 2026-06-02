@@ -179,7 +179,9 @@ def build_morning(screen: dict, matsuri: dict, market: dict | None = None) -> st
         out = ""
         for i, s in enumerate(items, 1):
             extra = (f'<br><span style="color:#888;font-size:13px;">乖離率: {s.get("gap_ratio","")}% ／ '
-                     f'SMA13: {s.get("sma13","")} ／ SMA26: {s.get("sma26","")}</span>')
+                     f'SMA13: {s.get("sma13","")} ／ SMA26: {s.get("sma26","")}</span>'
+                     f'<br><span style="color:#2d6a4f;font-size:13px;">💧 売買代金 約{s.get("turnover_oku","-")}億円／日 '
+                     f'（出来高 約{s.get("avg_vol_man","-")}万株）</span>')
             price_html = f'<span style="font-size:15px;font-weight:bold;">{s.get("price","")}円</span>'
             out += _row(i, s.get("code", ""), s.get("name", ""), price_html, extra)
         return out
@@ -191,10 +193,10 @@ def build_morning(screen: dict, matsuri: dict, market: dict | None = None) -> st
                 f'スクリーニング実行: {screen.get("screened_at","-")} ／ 対象 {screen.get("universe_size","-")} 銘柄')
         + _market_section(market or {})
         + _section("週足GC直前ランキング TOP10", "📈",
-                   "株価2300円以下／13週SMA＜26週SMA／株価＞26週SMA／乖離率の低い順",
+                   "株価2300円以下／13週SMA＜26週SMA／株価＞26週SMA／乖離率の低い順／売買代金1億円以上",
                    tech_rows(screen.get("section2", [])), "#1a56db", "株価")
         + _section("GC直前（株価2300円超）参考リスト TOP10", "💡",
-                   "「株価2300円未満」だけ満たさない銘柄（テクニカルはGC直前／参考）",
+                   "「株価2300円未満」だけ満たさない銘柄／売買代金1億円以上（テクニカルはGC直前／参考）",
                    tech_rows(screen.get("section3", [])), "#1a56db", "株価")
         + _section("お祭り銘柄 TOP10（デイトレ予習）", "🔥",
                    "値上がり率・出来高上位／25日線上抜け／出来高急増／材料・仕手・IPO・常連を加味した強い動きの銘柄",
@@ -263,9 +265,48 @@ def build_afternoon(candidates: list) -> str:
     return _wrap(body)
 
 
+# ---------------------------------------------------------------- 市場まとめ返信
+
+def build_market_reply(market: dict) -> str:
+    """既送信の朝メールへの返信用：今朝の市場のまとめのみのHTML。"""
+    today = datetime.now().strftime("%Y/%m/%d")
+    body = (
+        _header("#b45309", "🌅", f"{today} 今朝の市場のまとめ",
+                "本日の朝メール（自動送信）への追記です")
+        + _market_section(market or {})
+    )
+    return _wrap(body)
+
+
 # ---------------------------------------------------------------- 送信
 
-def send_email(subject: str, html_body: str):
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def morning_message_id(date: datetime | None = None) -> str:
+    """その日の朝メールの決定的なMessage-ID（返信のスレッド紐付けに使う）。"""
+    d = (date or datetime.now()).strftime("%Y%m%d")
+    return f"<kabukatsuro-morning-{d}@kabukatsuro.local>"
+
+
+def sent_marker_path(date: datetime | None = None) -> str:
+    d = (date or datetime.now()).strftime("%Y%m%d")
+    return os.path.join(REPO, "data", "sent", f"morning-{d}.flag")
+
+
+def morning_already_sent(date: datetime | None = None) -> bool:
+    return os.path.exists(sent_marker_path(date))
+
+
+def _mark_morning_sent():
+    path = sent_marker_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(datetime.now().isoformat())
+
+
+def send_email(subject: str, html_body: str,
+               message_id: str | None = None, in_reply_to: str | None = None):
     gmail_user = os.environ["GMAIL_USER"]
     gmail_password = os.environ["GMAIL_APP_PASSWORD"]
     raw_to = os.environ.get("TO_EMAIL", gmail_user)
@@ -275,6 +316,12 @@ def send_email(subject: str, html_body: str):
     msg["Subject"] = subject
     msg["From"] = gmail_user
     msg["To"] = ", ".join(recipients)
+    if message_id:
+        msg["Message-ID"] = message_id
+    if in_reply_to:
+        # 同一スレッドに返信としてぶら下げる
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = in_reply_to
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
@@ -286,7 +333,7 @@ def send_email(subject: str, html_body: str):
 
 def main():
     parser = argparse.ArgumentParser(description="スクリーニング結果メール送信")
-    sub = parser.add_subparsers(dest="mode", required=True)
+    sub = parser.add_subparsers(dest="mode", required=False)
 
     m = sub.add_parser("morning", help="朝8時メール")
     m.add_argument("--screen", required=True, help="screener.py出力JSON")
@@ -296,19 +343,40 @@ def main():
     a = sub.add_parser("afternoon", help="昼12:30メール")
     a.add_argument("--candidates", required=True, help="午後候補銘柄JSON")
 
+    r = sub.add_parser("reply-market", help="既送信の朝メールへ市場まとめを返信")
+    r.add_argument("--market", required=True, help="今朝の市場まとめJSON")
+
+    parser.add_argument("--check-sent", action="store_true",
+                        help="本日の朝メールが送信済みかを判定して終了（送信済みなら終了コード0、未送信なら20）")
     args = parser.parse_args()
     today = datetime.now().strftime("%Y/%m/%d")
+    morning_subject = f"【株スクリーニング】{today} 朝の市場まとめ＆候補銘柄"
+
+    if getattr(args, "check_sent", False):
+        if morning_already_sent():
+            print("SENT: 本日の朝メールは送信済みです")
+        else:
+            print("NOT_SENT: 本日の朝メールは未送信です")
+            sys.exit(20)
+        return
 
     if args.mode == "morning":
         screen = load_json(args.screen, {})
         matsuri = load_json(args.matsuri, {})
         market = load_json(args.market, {})
         html = build_morning(screen, matsuri, market)
-        send_email(f"【株スクリーニング】{today} 朝の市場まとめ＆候補銘柄", html)
-    else:
+        send_email(morning_subject, html, message_id=morning_message_id())
+        _mark_morning_sent()
+    elif args.mode == "reply-market":
+        market = load_json(args.market, {})
+        html = build_market_reply(market)
+        send_email(f"Re: {morning_subject}", html, in_reply_to=morning_message_id())
+    elif args.mode == "afternoon":
         candidates = enrich_prices(load_json(args.candidates, []))
         html = build_afternoon(candidates)
         send_email(f"【株スクリーニング】{today} 午後の候補銘柄リスト", html)
+    else:
+        parser.error("モードを指定してください（morning / afternoon / reply-market / --check-sent）")
 
 
 if __name__ == "__main__":

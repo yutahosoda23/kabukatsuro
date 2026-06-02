@@ -34,7 +34,9 @@ launchd 設定は `~/Library/LaunchAgents/com.kabukatsuro.{morning,afternoon}.pl
 - 🔥 お祭り銘柄 TOP10（デイトレ予習・最下部）— `daytrade.py`
 
 履歴が貯まると お祭り銘柄 の後に「🔄 急落リバウンド候補」が出ることがある。
-「おはよう」と話しかけると市場まとめ付きの朝メールを送る（`.claude/skills/ohayou-stock-mail`）。
+「おはよう」と話しかけると `.claude/skills/ohayou-stock-mail` が動く。
+本日の自動朝メールが **既に送信済みなら、そのメールに返信する形で市場まとめ（WebSearch）だけを追記**し、
+未送信なら市場まとめ付きの朝メールを新規に送る（`mailer.py --check-sent` で判定、送信済み判定は `data/sent/` のマーカー）。
 
 #### お祭り銘柄（Section 1）の手法 — ある相場本の夜の予習法を実装
 - 値上がり率上位 ∪ 出来高（売買高）上位を母集団にする
@@ -57,7 +59,9 @@ launchd 設定は `~/Library/LaunchAgents/com.kabukatsuro.{morning,afternoon}.pl
 - `SMA(13週) < SMA(26週)` → GC未成立
 - `株価 > SMA(26週)` → 株価は26週線を上抜け済み
 - `乖離率 = (SMA26 - SMA13) / SMA26 < 5%` → GC直前（この値が小さい順にランキング）
+- `日次平均売買代金 >= 1億円` → デイトレで売買できる流動性（`screener.py` の `MIN_DAILY_TURNOVER`）
 
+各銘柄に売買代金（億円/日）・出来高（万株）を併記する。
 銘柄ユニバースは JPX「上場銘柄一覧（data_j.xls）」から東証プライム/スタンダード/グロースの
 内国普通株（約3,500銘柄）を毎回取得する。
 

@@ -6,6 +6,7 @@
   - SMA(13週) < SMA(26週)            ← GC未成立
   - 株価 > SMA(26週)                  ← 26週線を上抜け済み
   - 乖離率 = (SMA26 - SMA13) / SMA26 < 5%  ← GC直前
+  - 日次平均売買代金 >= 1億円          ← デイトレで売買できる流動性
 
 出力(JSON):
   {
@@ -38,10 +39,11 @@ TARGET_MARKETS = {
     "グロース（内国株式）",
 }
 
-PRICE_CEILING = 2300       # 株価上限（円）
-GAP_THRESHOLD = 0.05       # 乖離率しきい値（5%）
-TOP_N = 10                 # 各セクションの最大件数
-BATCH_SIZE = 150           # yfinance一括取得のバッチサイズ
+PRICE_CEILING = 2300            # 株価上限（円）
+GAP_THRESHOLD = 0.05            # 乖離率しきい値（5%）
+MIN_DAILY_TURNOVER = 100_000_000  # 日次平均売買代金の下限（円, 1億円）デイトレ流動性フィルタ
+TOP_N = 10                      # 各セクションの最大件数
+BATCH_SIZE = 150                # yfinance一括取得のバッチサイズ
 
 
 def chart_url(code: str) -> str:
@@ -81,20 +83,20 @@ def is_trading_day(dt: datetime | None = None) -> bool:
     return True
 
 
-def _weekly_close(data: pd.DataFrame, ticker: str) -> pd.Series | None:
-    """yf.download の戻り値から指定銘柄の週足終値Seriesを取り出す。"""
+def _weekly_field(data: pd.DataFrame, ticker: str, field: str) -> pd.Series | None:
+    """yf.download の戻り値から指定銘柄の週足系列（Close/Volume等）を取り出す。"""
     try:
         if isinstance(data.columns, pd.MultiIndex):
-            close = data[ticker]["Close"]
+            s = data[ticker][field]
         else:
-            close = data["Close"]
+            s = data[field]
     except (KeyError, TypeError):
         return None
-    close = close.dropna()
-    return close if len(close) >= 26 else None
+    return s.dropna()
 
 
-def screen(price_ceiling: int = PRICE_CEILING, gap_threshold: float = GAP_THRESHOLD) -> dict:
+def screen(price_ceiling: int = PRICE_CEILING, gap_threshold: float = GAP_THRESHOLD,
+           min_turnover: float = MIN_DAILY_TURNOVER) -> dict:
     universe = get_jpx_universe()
     codes = list(universe.keys())
     tickers = [f"{c}.T" for c in codes]
@@ -117,8 +119,8 @@ def screen(price_ceiling: int = PRICE_CEILING, gap_threshold: float = GAP_THRESH
             continue
 
         for ticker in batch:
-            close = _weekly_close(data, ticker)
-            if close is None:
+            close = _weekly_field(data, ticker, "Close")
+            if close is None or len(close) < 26:
                 continue
 
             price = float(close.iloc[-1])
@@ -135,6 +137,15 @@ def screen(price_ceiling: int = PRICE_CEILING, gap_threshold: float = GAP_THRESH
             if not (cond_not_gc and cond_above_sma26 and cond_gap):
                 continue
 
+            # 流動性（デイトレ用）: 直近4週の平均週間出来高から日次平均売買代金を概算
+            volume = _weekly_field(data, ticker, "Volume")
+            if volume is None or len(volume) == 0:
+                continue
+            avg_daily_vol = float(volume.iloc[-4:].mean()) / 5.0  # 週間出来高→日次概算
+            turnover = avg_daily_vol * price                     # 日次平均売買代金(円)
+            if turnover < min_turnover:
+                continue
+
             code = ticker[:-2]
             entry = {
                 "code": code,
@@ -143,6 +154,8 @@ def screen(price_ceiling: int = PRICE_CEILING, gap_threshold: float = GAP_THRESH
                 "sma13": round(sma13, 1),
                 "sma26": round(sma26, 1),
                 "gap_ratio": round(gap_ratio * 100, 2),  # %表示
+                "avg_vol_man": round(avg_daily_vol / 10000, 1),   # 日次平均出来高(万株)
+                "turnover_oku": round(turnover / 1e8, 2),         # 日次平均売買代金(億円)
                 "chart_url": chart_url(code),
             }
             (section2 if price < price_ceiling else section3).append(entry)
