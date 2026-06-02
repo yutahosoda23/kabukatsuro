@@ -108,15 +108,22 @@ def _wrap(body: str) -> str:
 
 # ---------------------------------------------------------------- 朝メール
 
-def build_morning(screen: dict, hot: list) -> str:
+def build_morning(screen: dict, matsuri: dict) -> str:
     today = datetime.now().strftime("%Y/%m/%d")
 
+    # Section1: お祭り銘柄（デイトレ予習）
     s1 = ""
-    for i, s in enumerate(hot[:10], 1):
+    for i, s in enumerate(matsuri.get("matsuri", [])[:10], 1):
         extra = f'<br><span style="color:#555;font-size:13px;">→ {s.get("reason","")}</span>'
         price = s.get("price", "")
         price_html = f'<span style="font-size:15px;font-weight:bold;">{price}円</span>' if price != "" else "-"
         s1 += _row(i, str(s.get("code", "")), s.get("name", ""), price_html, extra)
+
+    # 急落リバウンド候補（履歴が貯まると出現）
+    rebound_rows = ""
+    for i, s in enumerate(matsuri.get("rebound", []), 1):
+        extra = f'<br><span style="color:#555;font-size:13px;">→ {s.get("reason","")}</span>'
+        rebound_rows += _row(i, str(s.get("code", "")), s.get("name", ""), "-", extra)
 
     def tech_rows(items):
         out = ""
@@ -130,12 +137,18 @@ def build_morning(screen: dict, hot: list) -> str:
     body = (
         _header("#1a56db", "📊", f"{today} 朝の候補銘柄",
                 f'スクリーニング実行: {screen.get("screened_at","-")} ／ 対象 {screen.get("universe_size","-")} 銘柄')
-        + _section("本日の好材料銘柄 TOP10", "📰",
-                   "決算・買い推奨・自社株買いなど、本日注目の材料が出ている銘柄",
-                   s1, "#1a56db", "株価")
-        + _section("週足GC直前ランキング TOP10", "📈",
-                   "株価2300円以下／13週SMA＜26週SMA／株価＞26週SMA／乖離率の低い順",
-                   tech_rows(screen.get("section2", [])), "#1a56db", "株価")
+        + _section("お祭り銘柄 TOP10（デイトレ予習）", "🔥",
+                   "値上がり率・出来高上位／25日線上抜け／出来高急増／材料・仕手・IPO・常連を加味した強い動きの銘柄",
+                   s1, "#e8590c", "株価")
+    )
+    if rebound_rows:
+        body += _section("急落リバウンド候補", "🔄",
+                         "ランキング常連だったが本日は圏外。リバウンドを狙える可能性",
+                         rebound_rows, "#e8590c", "")
+    body += (
+        _section("週足GC直前ランキング TOP10", "📈",
+                 "株価2300円以下／13週SMA＜26週SMA／株価＞26週SMA／乖離率の低い順",
+                 tech_rows(screen.get("section2", [])), "#1a56db", "株価")
         + _section("GC直前（株価2300円超）参考リスト TOP10", "💡",
                    "「株価2300円未満」だけ満たさない銘柄（テクニカルはGC直前／参考）",
                    tech_rows(screen.get("section3", [])), "#1a56db", "株価")
@@ -226,7 +239,7 @@ def main():
 
     m = sub.add_parser("morning", help="朝8時メール")
     m.add_argument("--screen", required=True, help="screener.py出力JSON")
-    m.add_argument("--hot", help="好材料銘柄JSON")
+    m.add_argument("--matsuri", help="daytrade.py出力JSON（お祭り銘柄）")
 
     a = sub.add_parser("afternoon", help="昼12:30メール")
     a.add_argument("--candidates", required=True, help="午後候補銘柄JSON")
@@ -236,8 +249,8 @@ def main():
 
     if args.mode == "morning":
         screen = load_json(args.screen, {})
-        hot = load_json(args.hot, [])
-        html = build_morning(screen, hot)
+        matsuri = load_json(args.matsuri, {})
+        html = build_morning(screen, matsuri)
         send_email(f"【株スクリーニング】{today} 朝の候補銘柄リスト", html)
     else:
         candidates = enrich_prices(load_json(args.candidates, []))

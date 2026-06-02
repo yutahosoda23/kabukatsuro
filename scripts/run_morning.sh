@@ -23,10 +23,10 @@ elif [ $rc -ne 0 ]; then
   exit $rc
 fi
 
-# 2) 好材料銘柄（Anthropic API + web_search）
-"$PY" scripts/catalysts.py morning --out /tmp/kabu_hot.json || echo "好材料取得に失敗（Section1は空で続行）"
+# 2) お祭り銘柄（デイトレ予習：値上がり率/出来高/移動平均上抜け/仕手/IPO/履歴）
+"$PY" scripts/daytrade.py --out /tmp/kabu_matsuri.json || echo "お祭り銘柄の生成に失敗（Section1は空で続行）"
 
 # 3) メール送信
-"$PY" scripts/mailer.py morning --screen /tmp/kabu_screen.json --hot /tmp/kabu_hot.json
+"$PY" scripts/mailer.py morning --screen /tmp/kabu_screen.json --matsuri /tmp/kabu_matsuri.json
 
 echo "===== 朝の実行完了 ====="
