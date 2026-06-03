@@ -34,7 +34,7 @@ from email.mime.text import MIMEText
 def chart_url(code: str) -> str:
     return (
         f"https://finance.yahoo.co.jp/quote/{code}.T/chart"
-        "?frm=wkly&trm=6m&scl=stndrd&styl=cndl&evnts=volume"
+        "?frm=dly&trm=3m&scl=stndrd&styl=cndl&evnts=volume"
         "&ovrIndctr=sma%2Cmma%2Clma&addIndctr=&compare="
     )
 
@@ -179,21 +179,21 @@ def build_morning(screen: dict, matsuri: dict, market: dict | None = None) -> st
         out = ""
         for i, s in enumerate(items, 1):
             extra = (f'<br><span style="color:#888;font-size:13px;">乖離率: {s.get("gap_ratio","")}% ／ '
-                     f'SMA13: {s.get("sma13","")} ／ SMA26: {s.get("sma26","")}</span>'
+                     f'SMA5: {s.get("sma5","")} ／ SMA25: {s.get("sma25","")}</span>'
                      f'<br><span style="color:#2d6a4f;font-size:13px;">💧 売買代金 約{s.get("turnover_oku","-")}億円／日 '
                      f'（出来高 約{s.get("avg_vol_man","-")}万株）</span>')
             price_html = f'<span style="font-size:15px;font-weight:bold;">{s.get("price","")}円</span>'
             out += _row(i, s.get("code", ""), s.get("name", ""), price_html, extra)
         return out
 
-    # 順序: ① 今朝の市場のまとめ（地合いを手早く把握）→ ② 週足GCテクニカル
+    # 順序: ① 今朝の市場のまとめ（地合いを手早く把握）→ ② 日足GC(5日/25日)テクニカル
     #       → ③ お祭り銘柄（デイトレ予習）＋リバウンドは最下部
     body = (
         _header("#1a56db", "📊", f"{today} 朝の市場まとめ & 候補銘柄",
                 f'スクリーニング実行: {screen.get("screened_at","-")} ／ 対象 {screen.get("universe_size","-")} 銘柄')
         + _market_section(market or {})
-        + _section("週足GC直前ランキング TOP10", "📈",
-                   "株価2300円以下／13週SMA＜26週SMA／株価＞26週SMA／乖離率の低い順／売買代金1億円以上",
+        + _section("日足GC直前ランキング TOP10（5日線/25日線）", "📈",
+                   "株価2300円以下／5日SMA＜25日SMA／株価＞25日SMA／乖離率の低い順／売買代金1億円以上",
                    tech_rows(screen.get("section2", [])), "#1a56db", "株価")
         + _section("GC直前（株価2300円超）参考リスト TOP10", "💡",
                    "「株価2300円未満」だけ満たさない銘柄／売買代金1億円以上（テクニカルはGC直前／参考）",

@@ -1,11 +1,11 @@
 """
-週足ゴールデンクロス(GC)直前スクリーニング
+日足ゴールデンクロス(GC)直前スクリーニング（5日線 / 25日線）
 
 条件:
   - 株価 < 2300円
-  - SMA(13週) < SMA(26週)            ← GC未成立
-  - 株価 > SMA(26週)                  ← 26週線を上抜け済み
-  - 乖離率 = (SMA26 - SMA13) / SMA26 < 5%  ← GC直前
+  - SMA(5日) < SMA(25日)             ← GC未成立
+  - 株価 > SMA(25日)                  ← 25日線を上抜け済み
+  - 乖離率 = (SMA25 - SMA5) / SMA25 < 5%  ← GC直前
   - 日次平均売買代金 >= 1億円          ← デイトレで売買できる流動性
 
 出力(JSON):
@@ -42,6 +42,9 @@ TARGET_MARKETS = {
 PRICE_CEILING = 2300            # 株価上限（円）
 GAP_THRESHOLD = 0.05            # 乖離率しきい値（5%）
 MIN_DAILY_TURNOVER = 100_000_000  # 日次平均売買代金の下限（円, 1億円）デイトレ流動性フィルタ
+SMA_SHORT = 5                   # 短期移動平均（日足・5日線）
+SMA_LONG = 25                   # 長期移動平均（日足・25日線）
+TURNOVER_WINDOW = 20            # 売買代金を平均する直近営業日数
 TOP_N = 10                      # 各セクションの最大件数
 BATCH_SIZE = 150                # yfinance一括取得のバッチサイズ
 
@@ -49,7 +52,7 @@ BATCH_SIZE = 150                # yfinance一括取得のバッチサイズ
 def chart_url(code: str) -> str:
     return (
         f"https://finance.yahoo.co.jp/quote/{code}.T/chart"
-        "?frm=wkly&trm=6m&scl=stndrd&styl=cndl&evnts=volume"
+        "?frm=dly&trm=3m&scl=stndrd&styl=cndl&evnts=volume"
         "&ovrIndctr=sma%2Cmma%2Clma&addIndctr=&compare="
     )
 
@@ -83,8 +86,8 @@ def is_trading_day(dt: datetime | None = None) -> bool:
     return True
 
 
-def _weekly_field(data: pd.DataFrame, ticker: str, field: str) -> pd.Series | None:
-    """yf.download の戻り値から指定銘柄の週足系列（Close/Volume等）を取り出す。"""
+def _series_field(data: pd.DataFrame, ticker: str, field: str) -> pd.Series | None:
+    """yf.download の戻り値から指定銘柄の日足系列（Close/Volume等）を取り出す。"""
     try:
         if isinstance(data.columns, pd.MultiIndex):
             s = data[ticker][field]
@@ -110,7 +113,7 @@ def screen(price_ceiling: int = PRICE_CEILING, gap_threshold: float = GAP_THRESH
         print(f"  {start}/{len(tickers)} 取得中...", file=sys.stderr)
         try:
             data = yf.download(
-                batch, period="2y", interval="1wk",
+                batch, period="6mo", interval="1d",
                 group_by="ticker", auto_adjust=True,
                 progress=False, threads=True,
             )
@@ -119,30 +122,30 @@ def screen(price_ceiling: int = PRICE_CEILING, gap_threshold: float = GAP_THRESH
             continue
 
         for ticker in batch:
-            close = _weekly_field(data, ticker, "Close")
-            if close is None or len(close) < 26:
+            close = _series_field(data, ticker, "Close")
+            if close is None or len(close) < SMA_LONG:
                 continue
 
             price = float(close.iloc[-1])
-            sma13 = float(close.iloc[-13:].mean())
-            sma26 = float(close.iloc[-26:].mean())
-            if sma26 == 0:
+            sma5 = float(close.iloc[-SMA_SHORT:].mean())
+            sma25 = float(close.iloc[-SMA_LONG:].mean())
+            if sma25 == 0:
                 continue
 
-            gap_ratio = (sma26 - sma13) / sma26  # SMA13<SMA26 のとき正
+            gap_ratio = (sma25 - sma5) / sma25  # SMA5<SMA25 のとき正
 
-            cond_not_gc = sma13 < sma26          # GC未成立
-            cond_above_sma26 = price > sma26     # 26週線上抜け
+            cond_not_gc = sma5 < sma25           # GC未成立
+            cond_above_sma25 = price > sma25     # 25日線上抜け
             cond_gap = gap_ratio < gap_threshold  # 乖離率 < しきい値
-            if not (cond_not_gc and cond_above_sma26 and cond_gap):
+            if not (cond_not_gc and cond_above_sma25 and cond_gap):
                 continue
 
-            # 流動性（デイトレ用）: 直近4週の平均週間出来高から日次平均売買代金を概算
-            volume = _weekly_field(data, ticker, "Volume")
+            # 流動性（デイトレ用）: 直近の日次出来高平均から日次平均売買代金を算出
+            volume = _series_field(data, ticker, "Volume")
             if volume is None or len(volume) == 0:
                 continue
-            avg_daily_vol = float(volume.iloc[-4:].mean()) / 5.0  # 週間出来高→日次概算
-            turnover = avg_daily_vol * price                     # 日次平均売買代金(円)
+            avg_daily_vol = float(volume.iloc[-TURNOVER_WINDOW:].mean())  # 日次平均出来高
+            turnover = avg_daily_vol * price                             # 日次平均売買代金(円)
             if turnover < min_turnover:
                 continue
 
@@ -151,8 +154,8 @@ def screen(price_ceiling: int = PRICE_CEILING, gap_threshold: float = GAP_THRESH
                 "code": code,
                 "name": universe.get(code, code),
                 "price": round(price, 1),
-                "sma13": round(sma13, 1),
-                "sma26": round(sma26, 1),
+                "sma5": round(sma5, 1),
+                "sma25": round(sma25, 1),
                 "gap_ratio": round(gap_ratio * 100, 2),  # %表示
                 "avg_vol_man": round(avg_daily_vol / 10000, 1),   # 日次平均出来高(万株)
                 "turnover_oku": round(turnover / 1e8, 2),         # 日次平均売買代金(億円)
@@ -172,7 +175,7 @@ def screen(price_ceiling: int = PRICE_CEILING, gap_threshold: float = GAP_THRESH
 
 
 def main():
-    parser = argparse.ArgumentParser(description="週足GC直前スクリーニング")
+    parser = argparse.ArgumentParser(description="日足GC直前スクリーニング（5日線/25日線）")
     parser.add_argument("--out", help="結果JSONの出力先パス（省略時は標準出力）")
     parser.add_argument("--check-day-only", action="store_true",
                         help="取引日判定のみ実行（休場日はSKIPを出力し終了コード10）")

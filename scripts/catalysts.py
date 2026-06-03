@@ -39,7 +39,7 @@ GOOD_KEYWORDS = [
 def chart_url(code: str) -> str:
     return (
         f"https://finance.yahoo.co.jp/quote/{code}.T/chart"
-        "?frm=wkly&trm=6m&scl=stndrd&styl=cndl&evnts=volume"
+        "?frm=dly&trm=3m&scl=stndrd&styl=cndl&evnts=volume"
         "&ovrIndctr=sma%2Cmma%2Clma&addIndctr=&compare="
     )
 
