@@ -107,13 +107,19 @@ def _fetch_all_rows() -> list[dict]:
     return out
 
 
-def filter_ranking(rows: list[dict], limit: int, price_ceiling: int) -> list[dict]:
-    """単価<=price_ceiling の銘柄を順位順に最大limit件返す（内部用price_valは除く）。"""
+def filter_ranking(rows: list[dict], limit: int, price_ceiling: int,
+                   price_floor: float = 0) -> list[dict]:
+    """price_floor < 単価 <= price_ceiling の銘柄を元の順位順に最大limit件返す。
+
+    rank は各セクション内で 1,2,3… の連番に振り直す（内部用price_valは出力しない）。
+    """
     out = []
     for r in rows:
-        if r["price_val"] > price_ceiling:
+        if not (price_floor < r["price_val"] <= price_ceiling):
             continue
-        out.append({k: v for k, v in r.items() if k != "price_val"})
+        entry = {k: v for k, v in r.items() if k != "price_val"}
+        entry["rank"] = len(out) + 1  # セクション内の連番に振り直す
+        out.append(entry)
         if len(out) >= limit:
             break
     return out
@@ -132,14 +138,16 @@ def main():
 
     rows = _fetch_all_rows()
     result = {
-        "matsui": filter_ranking(rows, args.limit, PRICE_CEILING),       # 単価<=15,000円（150万円以下）
-        "matsui_2300": filter_ranking(rows, args.limit, PRICE_CEILING_LOW),  # 単価<=2,300円
+        # 15,000円以下（ただし2,300円以下は別掲のため除外） = 2,300円超〜15,000円
+        "matsui": filter_ranking(rows, args.limit, PRICE_CEILING, price_floor=PRICE_CEILING_LOW),
+        # 2,300円以下
+        "matsui_2300": filter_ranking(rows, args.limit, PRICE_CEILING_LOW),
     }
     payload = json.dumps(result, ensure_ascii=False, indent=2)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(payload)
-        print(f"デイトレ適性ランキング 150万円以下{len(result['matsui'])}件 / "
+        print(f"デイトレ適性ランキング 15,000円以下(2300円超){len(result['matsui'])}件 / "
               f"2300円以下{len(result['matsui_2300'])}件 → {args.out}", file=sys.stderr)
     else:
         print(payload)

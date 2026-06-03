@@ -206,24 +206,18 @@ def build_morning(screen: dict, matsuri: dict, market: dict | None = None,
             out += _row(s.get("rank", ""), s.get("code", ""), s.get("name", ""), price_html, extra)
         return out
 
-    # 順序: ① 今朝の市場のまとめ（地合い）→ ② 松井デイトレ適正ランキング(150万円以下・自動送信では出にくい目玉)
-    #       → ③ 日足GC(5日/25日)テクニカル → ④ お祭り銘柄（デイトレ予習）＋リバウンドは最下部
+    # 順序: ① 今朝の市場のまとめ（地合い）→ ② デイトレ適性ランキング(15,000円以下/2,300円以下)
+    #       → ③ お祭り銘柄（デイトレ予習）＋リバウンド → ④ 日足GC直前ランキング(最下部・各TOP5)
     body = (
         _header("#1a56db", "📊", f"{today} 朝の市場まとめ & 候補銘柄",
                 f'スクリーニング実行: {screen.get("screened_at","-")} ／ 対象 {screen.get("universe_size","-")} 銘柄')
         + _market_section(market or {})
-        + _section("デイトレ適性ランキング（150万円以下）", "🏇",
-                   "寄付前のデイトレ適性ランキング。値動き（株価変動率）×流動性でデイトレ向き／単価15,000円以下（単元100株＝150万円以下で取引可）TOP10",
+        + _section("デイトレ適性ランキング（15,000円以下）", "🏇",
+                   "寄付前のデイトレ適性ランキング。値動き（株価変動率）×流動性でデイトレ向き／単価15,000円以下（2,300円以下は別掲のため除く）TOP10",
                    matsui_rows((matsui or {}).get("matsui", [])), "#c2410c", "現在値")
-        + _section("デイトレ適性ランキング（2300円以下）", "🏇",
-                   "上記のうち単価2,300円以下に絞った少額版（単元100株＝23万円以下で取引可）TOP10",
+        + _section("デイトレ適性ランキング（2,300円以下）", "🏇",
+                   "上記のうち単価2,300円以下に絞った少額版 TOP10",
                    matsui_rows((matsui or {}).get("matsui_2300", [])), "#d97706", "現在値")
-        + _section("日足GC直前ランキング TOP10（5日線/25日線）", "📈",
-                   "株価2300円以下／5日SMA＜25日SMA／株価＞25日SMA／乖離率の低い順／売買代金1億円以上",
-                   tech_rows(screen.get("section2", [])), "#1a56db", "株価")
-        + _section("GC直前（株価2300円超）参考リスト TOP10", "💡",
-                   "「株価2300円未満」だけ満たさない銘柄／売買代金1億円以上（テクニカルはGC直前／参考）",
-                   tech_rows(screen.get("section3", [])), "#1a56db", "株価")
         + _section("お祭り銘柄 TOP10（デイトレ予習）", "🔥",
                    "値上がり率・出来高上位／25日線上抜け／出来高急増／材料・仕手・IPO・常連を加味した強い動きの銘柄",
                    s1, "#e8590c", "株価")
@@ -232,6 +226,13 @@ def build_morning(screen: dict, matsuri: dict, market: dict | None = None,
         body += _section("急落リバウンド候補", "🔄",
                          "ランキング常連だったが本日は圏外。リバウンドを狙える可能性",
                          rebound_rows, "#e8590c", "")
+    # GC直前ランキングは最下部・各TOP5
+    body += _section("日足GC直前ランキング TOP5（5日線/25日線）", "📈",
+                     "株価2300円以下／5日SMA＜25日SMA／株価＞25日SMA／乖離率の低い順／売買代金1億円以上",
+                     tech_rows(screen.get("section2", [])[:5]), "#1a56db", "株価")
+    body += _section("GC直前（株価2300円超）参考リスト TOP5", "💡",
+                     "「株価2300円未満」だけ満たさない銘柄／売買代金1億円以上（テクニカルはGC直前／参考）",
+                     tech_rows(screen.get("section3", [])[:5]), "#1a56db", "株価")
     return _wrap(body)
 
 
@@ -393,7 +394,9 @@ def main():
         market = load_json(args.market, {})
         matsui = load_json(args.matsui, {})
         html = build_morning(screen, matsuri, market, matsui)
-        send_email(morning_subject, html, message_id=morning_message_id())
+        # Message-IDは固定せず送信ごとにユニーク化（同日に複数回送っても
+        # Gmailが同一メールとして畳まず、毎回新着として届くようにする）
+        send_email(morning_subject, html)
         _mark_morning_sent()
     elif args.mode == "reply-market":
         market = load_json(args.market, {})
