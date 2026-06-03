@@ -3,7 +3,7 @@
 # 午後から上がりそうな銘柄リスト（Section2/3は送らない）
 set -uo pipefail
 
-REPO="/Users/yuthsd/Desktop/kabukatsuro"
+REPO="/Users/yuthsd/kabukatsuro"
 PY="$REPO/.venv/bin/python"
 cd "$REPO" || exit 1
 

@@ -3,7 +3,7 @@
 # Section1(好材料/API) + Section2/3(テクニカル/yfinance) を生成しメール送信
 set -uo pipefail
 
-REPO="/Users/yuthsd/Desktop/kabukatsuro"
+REPO="/Users/yuthsd/kabukatsuro"
 PY="$REPO/.venv/bin/python"
 cd "$REPO" || exit 1
 
