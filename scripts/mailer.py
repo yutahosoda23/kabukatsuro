@@ -158,7 +158,8 @@ def _wrap(body: str) -> str:
 
 # ---------------------------------------------------------------- 朝メール
 
-def build_morning(screen: dict, matsuri: dict, market: dict | None = None) -> str:
+def build_morning(screen: dict, matsuri: dict, market: dict | None = None,
+                  matsui: dict | None = None) -> str:
     today = datetime.now().strftime("%Y/%m/%d")
 
     # お祭り銘柄（デイトレ予習）— 最下部セクションへ
@@ -186,12 +187,37 @@ def build_morning(screen: dict, matsuri: dict, market: dict | None = None) -> st
             out += _row(i, s.get("code", ""), s.get("name", ""), price_html, extra)
         return out
 
-    # 順序: ① 今朝の市場のまとめ（地合いを手早く把握）→ ② 日足GC(5日/25日)テクニカル
-    #       → ③ お祭り銘柄（デイトレ予習）＋リバウンドは最下部
+    # 松井証券デイトレ適正ランキング（値動き＝株価変動率×流動性。デイトレ予習用）
+    def matsui_rows(items):
+        out = ""
+        for s in items:
+            volat = s.get("volatility_pct", "")
+            chg = s.get("chg_pct", "")
+            market_lbl = f' <span style="color:#aaa;">{s.get("market","")}</span>' if s.get("market") else ""
+            extra = (f'<br><span style="color:#c2410c;font-size:13px;font-weight:bold;">'
+                     f'値動き(株価変動率): {volat}%</span>'
+                     f'<span style="color:#888;font-size:13px;">{market_lbl}</span>'
+                     f'<br><span style="color:#2d6a4f;font-size:13px;">💧 売買代金 約{s.get("turnover_oku","-")}億円 '
+                     f'（出来高 {s.get("volume","-")}）</span>')
+            price = s.get("price", "")
+            chg_html = (f' <span style="font-size:12px;color:#888;">({chg}%)</span>' if chg else "")
+            price_html = (f'<span style="font-size:15px;font-weight:bold;">{price}円</span>{chg_html}'
+                          if price != "" else "-")
+            out += _row(s.get("rank", ""), s.get("code", ""), s.get("name", ""), price_html, extra)
+        return out
+
+    # 順序: ① 今朝の市場のまとめ（地合い）→ ② 松井デイトレ適正ランキング(150万円以下・自動送信では出にくい目玉)
+    #       → ③ 日足GC(5日/25日)テクニカル → ④ お祭り銘柄（デイトレ予習）＋リバウンドは最下部
     body = (
         _header("#1a56db", "📊", f"{today} 朝の市場まとめ & 候補銘柄",
                 f'スクリーニング実行: {screen.get("screened_at","-")} ／ 対象 {screen.get("universe_size","-")} 銘柄')
         + _market_section(market or {})
+        + _section("デイトレ適性ランキング（150万円以下）", "🏇",
+                   "寄付前のデイトレ適性ランキング。値動き（株価変動率）×流動性でデイトレ向き／単価15,000円以下（単元100株＝150万円以下で取引可）TOP10",
+                   matsui_rows((matsui or {}).get("matsui", [])), "#c2410c", "現在値")
+        + _section("デイトレ適性ランキング（2300円以下）", "🏇",
+                   "上記のうち単価2,300円以下に絞った少額版（単元100株＝23万円以下で取引可）TOP10",
+                   matsui_rows((matsui or {}).get("matsui_2300", [])), "#d97706", "現在値")
         + _section("日足GC直前ランキング TOP10（5日線/25日線）", "📈",
                    "株価2300円以下／5日SMA＜25日SMA／株価＞25日SMA／乖離率の低い順／売買代金1億円以上",
                    tech_rows(screen.get("section2", [])), "#1a56db", "株価")
@@ -339,6 +365,7 @@ def main():
     m.add_argument("--screen", required=True, help="screener.py出力JSON")
     m.add_argument("--matsuri", help="daytrade.py出力JSON（お祭り銘柄）")
     m.add_argument("--market", help="今朝の市場まとめJSON（地合い・指数・注目イベント）")
+    m.add_argument("--matsui", help="matsui.py出力JSON（松井デイトレ適正ランキング）")
 
     a = sub.add_parser("afternoon", help="昼12:30メール")
     a.add_argument("--candidates", required=True, help="午後候補銘柄JSON")
@@ -364,7 +391,8 @@ def main():
         screen = load_json(args.screen, {})
         matsuri = load_json(args.matsuri, {})
         market = load_json(args.market, {})
-        html = build_morning(screen, matsuri, market)
+        matsui = load_json(args.matsui, {})
+        html = build_morning(screen, matsuri, market, matsui)
         send_email(morning_subject, html, message_id=morning_message_id())
         _mark_morning_sent()
     elif args.mode == "reply-market":
